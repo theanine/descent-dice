@@ -8,6 +8,7 @@ import matplotlib.patches as mpatches
 import matplotlib.ticker as plticker
 import numpy as np
 import curses
+from joblib import Memory
 from curses.textpad import Textbox, rectangle
 from collections import defaultdict
 from IPython.core.pylabtools import figsize
@@ -15,7 +16,8 @@ from IPython.core.pylabtools import figsize
 # matplotlib.use("Qt4agg")
 
 settings_showPercent = False
-settings_showMiss = True
+settings_showMiss = False
+settings_debug = False
 
 matplotlib.rcParams['font.size'] = 14
 matplotlib.rcParams['figure.dpi'] = 300
@@ -70,6 +72,49 @@ dies["black"]["ranged"] = [0,0,0,0,0,0]
 dies["black"]["damage"] = [-0,-2,-2,-2,-3,-4]
 dies["black"]["surge"]  = [0,0,0,0,0,0]
 dies["black"]["miss"]   = [0,0,0,0,0,0]
+
+tStart = [None]*10
+tEnd = [None]*10
+def timeStart(index):
+	if not settings_debug and index > 0:
+		return
+	global tStart
+	tStart[index] = time.time()
+
+def timeEnd(index):
+	if not settings_debug and index > 0:
+		return
+	global tEnd	
+	tEnd[index] = time.time()
+
+def timeDiff(index):
+	if not settings_debug and index > 0:
+		return
+	if not tEnd[index] or not tStart[index]:
+		return
+	return tEnd[index] - tStart[index]
+
+def timeDiffFormatted(index):
+	if not settings_debug and index > 0:
+		return
+	td = timeDiff(index)
+	if td is not None:
+		return "{:.2f}s".format(td)
+	else:
+		return "**WAIT**"
+
+memory = None
+rollDiceCached = None
+def cacheSetup():
+	global rollDiceCached
+	global memory
+	location = './.cache'
+	memory = Memory(location, verbose=0)
+	rng = np.random.RandomState(42)
+	rollDiceCached = memory.cache(rollDice)
+
+def cacheClear():
+	memory.clear(warn=False)
 
 def drawPlot():
 	backend = plt.rcParams['backend']
@@ -126,6 +171,8 @@ def diceFromGUI():
 
 figure = None
 def descentSetup(cli):
+	cacheSetup()
+	
 	colors = ['#009E73', '#D55E00', '#F0E442', '#56B4E9'] # '#E69F00' (orange)
 	
 	# Make the histogram using matplotlib
@@ -136,10 +183,10 @@ def descentSetup(cli):
 	# Add labels
 	global figure
 	figure = plt.gcf()
-	figure.canvas.set_window_title('Descent: Dice Probability Distribution Graph {0}'.format(figure.number))
+	figure.canvas.set_window_title('Descent: Dice Probability Distribution Graph')
 	plt.title('Descent: Dice Probability Distribution Graph')
 	plt.xlabel('Amount')
-	plt.ylabel('Percentile')
+	plt.ylabel('Probability')
 	plt.subplots_adjust(left=0.12, bottom=0.13, right=0.98, top=0.92)
 
 	# Add ticks on x-axis/y-axis
@@ -156,11 +203,24 @@ def descentSetup(cli):
 		curses.wrapper(descentGUI)
 
 pltBars = []
-def descent(cli, **kwargs):
+result = {}
+avgMiss = 0
+counter = 0
+colors = ['#009E73', '#D55E00', '#F0E442', '#56B4E9'] # '#E69F00' (orange)
+labels = []
+hideMiss = True
+def descentPlot(cli, reroll, **kwargs):
 	if not cli:
 		kwargs = diceFromGUI()
 
-	result, avgMiss = rollDice(**kwargs)
+	cached = memory.cache(rollDice)
+	timeStart(0)
+	global result, avgMiss, counter
+	counter += 1
+	if reroll:
+		result, avgMiss = rollDiceCached(**kwargs)
+	timeEnd(0)
+	timeStart(5)
 	avgRange = 0 if "ranged" not in result else sum(result["ranged"])/len(result["ranged"])
 	avgDamage = 0 if "damage" not in result else sum(result["damage"])/len(result["damage"])
 	surge = [1 if x > 0 else 0 for x in result["surge"]] if 'surge' in result else [0]
@@ -168,28 +228,38 @@ def descent(cli, **kwargs):
 	avgSurge = sum(surge) / len(surge)
 	
 	# Configure histogram settings
-	colors = ['#009E73', '#D55E00', '#F0E442', '#56B4E9'] # '#E69F00' (orange)
-	labels = ['ranged ({0:.1f})'.format(avgRange),
-			  'damage ({0:.1f})'.format(avgDamage),
-			  'surge ({0:.1f}%)'.format(avgSurge * 100),
-			  'miss ({0:.1f}%)'.format(avgMiss * 100)]
+	global colors, labels, hideMiss
+	if reroll:
+		colors = ['#009E73', '#D55E00', '#F0E442', '#56B4E9'] # '#E69F00' (orange)
+		labels = ['ranged ({0:.1f})'.format(avgRange),
+				  'damage ({0:.1f})'.format(avgDamage),
+				  'surge ({0:.1f}%)'.format(avgSurge * 100),
+				  'miss ({0:.1f}%)'.format(avgMiss * 100)]
 
-	if not settings_showMiss or ("miss" in result and sum(result["miss"]) == 0):
-		result.pop('miss', None)
-		colors.pop(3)
-		labels.pop(3)
-	if "surge" in result and sum(result["surge"]) == 0:
-		result.pop('surge', None)
-		colors.pop(2)
-		labels.pop(2)
-	if "damage" in result and sum(result["damage"]) == 0:
-		result.pop('damage', None)
-		colors.pop(1)
-		labels.pop(1)
-	if "ranged" in result and sum(result["ranged"]) == 0:
-		result.pop('ranged', None)
-		colors.pop(0)
-		labels.pop(0)
+		hideMiss = False
+		if not settings_showMiss:
+			hideMiss = True
+		if "miss" not in result or sum(result["miss"]) != 0:
+			hideMiss = False
+
+		if not settings_showMiss:
+			result.pop('miss', None)
+		if "miss" in result and sum(result["miss"]) == 0:
+			result.pop('miss', None)
+			colors.pop(3)
+			labels.pop(3)
+		if "surge" in result and sum(result["surge"]) == 0:
+			result.pop('surge', None)
+			colors.pop(2)
+			labels.pop(2)
+		if "damage" in result and sum(result["damage"]) == 0:
+			result.pop('damage', None)
+			colors.pop(1)
+			labels.pop(1)
+		if "ranged" in result and sum(result["ranged"]) == 0:
+			result.pop('ranged', None)
+			colors.pop(0)
+			labels.pop(0)
 	
 	results = list(result.values())
 	minData = min(map(lambda x: min(x), results)) if len(results) > 0 else 0
@@ -204,7 +274,7 @@ def descent(cli, **kwargs):
 
 	global figure
 	figure = plt.gcf()
-	figure.canvas.set_window_title('Descent: Dice Probability Distribution Graph {0}'.format(figure.number))
+	figure.canvas.set_window_title('Descent: Dice Probability Distribution Graph')
 	ax = plt.gca()
 	if not cli:
 		# Rescale the display to fit the data
@@ -213,14 +283,17 @@ def descent(cli, **kwargs):
 
 	# Place a legend to the right
 	handles, _ = ax.axes.get_legend_handles_labels()
-	if not settings_showMiss and len(results)>0:
+	if not settings_showMiss and not hideMiss and len(results)>0:
 		handles.append(mpatches.Patch(color='none', label=labels[-1]))
 	plt.legend(handles=handles)
+	timeEnd(5)
 
+	timeStart(6)
 	if cli:
 		plt.show()
 	else:
 		drawPlot()
+	timeEnd(6)
 
 def plotWasClosed():
 	return not plt.fignum_exists(figure.number)
@@ -238,6 +311,7 @@ def descentGUI(stdscr):
 	stdscr.addstr(8, 1, "Black:")
 	
 	curses.curs_set(0)
+	window = curses.initscr()
 	editwin = curses.newwin(8,2, 2,11)
 	rectangle(stdscr, 1,9, 1+7+1, 1+11+1)
 	
@@ -245,16 +319,20 @@ def descentGUI(stdscr):
 	selected = 0
 	counter = 100
 	while True:
+		forceUpdate = False
 		# User input
+		timeStart(1)
 		c = stdscr.getch()
+		timeEnd(1)
+		timeStart(2)
 		if c >= ord('0') and c <= ord('9'):
 			if GUIdice[selected] != int(chr(c)):
 				GUIdice[selected] = int(chr(c))
-				counter = 0
+				forceUpdate = True
 		elif c == 263 or c == 330: # DEL
 			if GUIdice[selected] != 0:
 				GUIdice[selected] = 0
-				counter = 0
+				forceUpdate = True
 		elif c == 258: # down
 			selected += 1
 			if selected > 6:
@@ -269,18 +347,38 @@ def descentGUI(stdscr):
 			plt.close('all')
 			curses.endwin()
 			return
+		timeEnd(2)
 
-		# Draw dice values
+		# Draw console
+		timeStart(3)
+		stdscr.addstr(10, 1, "Last roll took: " + ("**WAIT**" if forceUpdate else timeDiffFormatted(0)))
+		window.clrtoeol()
+		if settings_debug:
+			stdscr.addstr(11, 1, "User input took: {:.2f}s".format(timeDiff(1)))
+			window.clrtoeol()
+			stdscr.addstr(12, 1, "Process input took: {:.2f}s".format(timeDiff(2)))
+			window.clrtoeol()
+			stdscr.addstr(13, 1, "Drawing console took: {:.2f}s".format(timeDiff(3)))
+			window.clrtoeol()
+			stdscr.addstr(14, 1, "Plot setup took: {:.2f}s".format(timeDiff(5)))
+			window.clrtoeol()
+			stdscr.addstr(15, 1, "Plot drawing took: {:.2f}s".format(timeDiff(6)))
+			window.clrtoeol()
+		window.refresh()
 		for i in range(0,7):
 			stdscr.addstr(i+2, 11, str(GUIdice[i]), curses.color_pair(1 if i == selected else 0))
 			stdscr.refresh()
+		timeEnd(3)
 	
 		# Draw plot
+		timeStart(4)
 		time.sleep(0.01)
 		counter -= 1
-		if counter <= 0:
-			descent(False)
+		if counter <= 0 or forceUpdate:
+			descentPlot(False, forceUpdate)
 			counter = 100
+			forceUpdate = False
+		timeEnd(4)
 
 def usage(exitcode):
 	print("dice.py [--blue|--red|--yellow|--green|--brown|--white|--black]")
@@ -323,4 +421,4 @@ if __name__ == "__main__":
 			cli = True
 
 	descentSetup(cli)
-	descent(cli, **kwargs)
+	descentPlot(cli, True, **kwargs)
