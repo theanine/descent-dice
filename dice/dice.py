@@ -18,6 +18,9 @@ from IPython.core.pylabtools import figsize
 settings_showPercent = False
 settings_showMiss = False
 settings_debug = False
+cum_enabled = 0
+cum_mode = 1
+cum_mode_str = "FWD"
 
 matplotlib.rcParams['font.size'] = 14
 matplotlib.rcParams['figure.dpi'] = 300
@@ -268,7 +271,7 @@ def descentPlot(cli, reroll, **kwargs):
 	# Make the histogram using matplotlib
 	global pltBars
 	[b.remove() for b in pltBars]
-	_, _, pltBars = plt.hist(results, color=colors[:max(len(result),1)], edgecolor='black',
+	_, _, pltBars = plt.hist(results, color=colors[:max(len(result),1)], edgecolor='black', cumulative=cum_mode*cum_enabled,
 		label=labels[:max(len(result),1)], bins=np.arange(minData, maxData + 0.9999, 0.9999), density=True)
 	plt.style.use('dark_background')
 
@@ -318,6 +321,7 @@ def descentGUI(stdscr):
 	stdscr.nodelay(True)
 	selected = 0
 	counter = 100
+	global cum_mode, cum_enabled, cum_mode_str
 	while True:
 		forceUpdate = False
 		# User input
@@ -329,6 +333,8 @@ def descentGUI(stdscr):
 			if GUIdice[selected] != int(chr(c)):
 				GUIdice[selected] = int(chr(c))
 				forceUpdate = True
+		elif c == ord('c') or c == ord('C'):
+			cum_enabled = ~cum_enabled
 		elif c == 263 or c == 330: # DEL
 			if GUIdice[selected] != 0:
 				GUIdice[selected] = 0
@@ -341,6 +347,16 @@ def descentGUI(stdscr):
 			selected -= 1
 			if selected < 0:
 				selected = 0
+		elif c == 260: # left
+			if cum_mode > 0:
+				cum_mode = -cum_mode
+				cum_mode_str = "REV"
+				forceUpdate = True
+		elif c == 261: # right
+			if cum_mode < 0:
+				cum_mode = -cum_mode
+				cum_mode_str = "FWD"
+				forceUpdate = True
 		elif c == 27 or plotWasClosed(): # ESC
 			stdscr.addstr(0, 0, "*********QUITTING********")
 			stdscr.refresh()
@@ -351,25 +367,27 @@ def descentGUI(stdscr):
 
 		# Draw console
 		timeStart(3)
-		stdscr.addstr(10, 1, "Last roll took: " + ("**WAIT**" if forceUpdate else timeDiffFormatted(0)))
+		stdscr.addstr(10, 1, "Cumulative Mode: {} ('C' to toggle)".format("OFF" if not cum_enabled else "ON ({})".format(cum_mode_str)))
+		window.clrtoeol()
+		stdscr.addstr(11, 1, "Last roll took: " + ("**WAIT**" if forceUpdate else timeDiffFormatted(0)))
 		window.clrtoeol()
 		if settings_debug:
-			stdscr.addstr(11, 1, "User input took: {:.2f}s".format(timeDiff(1)))
+			stdscr.addstr(12, 1, "User input took: {:.2f}s".format(timeDiff(1)))
 			window.clrtoeol()
-			stdscr.addstr(12, 1, "Process input took: {:.2f}s".format(timeDiff(2)))
+			stdscr.addstr(13, 1, "Process input took: {:.2f}s".format(timeDiff(2)))
 			window.clrtoeol()
-			stdscr.addstr(13, 1, "Drawing console took: {:.2f}s".format(timeDiff(3)))
+			stdscr.addstr(14, 1, "Drawing console took: {:.2f}s".format(timeDiff(3)))
 			window.clrtoeol()
-			stdscr.addstr(14, 1, "Plot setup took: {:.2f}s".format(timeDiff(5)))
+			stdscr.addstr(15, 1, "Plot setup took: {:.2f}s".format(timeDiff(5)))
 			window.clrtoeol()
-			stdscr.addstr(15, 1, "Plot drawing took: {:.2f}s".format(timeDiff(6)))
+			stdscr.addstr(16, 1, "Plot drawing took: {:.2f}s".format(timeDiff(6)))
 			window.clrtoeol()
 		window.refresh()
 		for i in range(0,7):
 			stdscr.addstr(i+2, 11, str(GUIdice[i]), curses.color_pair(1 if i == selected else 0))
 			stdscr.refresh()
 		timeEnd(3)
-	
+
 		# Draw plot
 		timeStart(4)
 		time.sleep(0.01)
