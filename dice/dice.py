@@ -17,8 +17,12 @@ from IPython.core.pylabtools import figsize
 settings_showPercent = False
 settings_showMiss = True
 
-matplotlib.rcParams['font.size'] = 18
+matplotlib.rcParams['font.size'] = 14
 matplotlib.rcParams['figure.dpi'] = 300
+matplotlib.rcParams['xtick.labelsize'] = 8
+matplotlib.rcParams['ytick.labelsize'] = 8
+matplotlib.rcParams['axes.labelsize'] = 16
+matplotlib.rcParams['axes.titlesize'] = 16
 
 dies = {}
 GUIdice = [0,0,0,0,0,0,0]
@@ -54,11 +58,13 @@ dies["brown"]["ranged"] = [0,0,0,0,0,0]
 dies["brown"]["damage"] = [-0,-0,-0,-1,-1,-2]
 dies["brown"]["surge"]  = [0,0,0,0,0,0]
 dies["brown"]["miss"]   = [0,0,0,0,0,0]
+
 dies["white"] = {}
 dies["white"]["ranged"] = [0,0,0,0,0,0]
 dies["white"]["damage"] = [-0,-1,-1,-1,-2,-3]
 dies["white"]["surge"]  = [0,0,0,0,0,0]
 dies["white"]["miss"]   = [0,0,0,0,0,0]
+
 dies["black"] = {}
 dies["black"]["ranged"] = [0,0,0,0,0,0]
 dies["black"]["damage"] = [-0,-2,-2,-2,-3,-4]
@@ -125,6 +131,7 @@ def descentSetup(cli):
 	# Make the histogram using matplotlib
 	figsize(9 if cli else 8.25, 6)
 	plt.hist([], color=colors[0], edgecolor='black', bins=np.arange(0, 0 + 0.9999, 0.9999), density=True)
+	plt.style.use('dark_background')
 	
 	# Add labels
 	global figure
@@ -154,9 +161,6 @@ def descent(cli, **kwargs):
 		kwargs = diceFromGUI()
 
 	result, avgMiss = rollDice(**kwargs)
-	if not settings_showMiss:
-		result.pop('miss', None)
-
 	avgRange = 0 if "ranged" not in result else sum(result["ranged"])/len(result["ranged"])
 	avgDamage = 0 if "damage" not in result else sum(result["damage"])/len(result["damage"])
 	surge = [1 if x > 0 else 0 for x in result["surge"]] if 'surge' in result else [0]
@@ -170,6 +174,23 @@ def descent(cli, **kwargs):
 			  'surge ({0:.1f}%)'.format(avgSurge * 100),
 			  'miss ({0:.1f}%)'.format(avgMiss * 100)]
 
+	if not settings_showMiss or ("miss" in result and sum(result["miss"]) == 0):
+		result.pop('miss', None)
+		colors.pop(3)
+		labels.pop(3)
+	if "surge" in result and sum(result["surge"]) == 0:
+		result.pop('surge', None)
+		colors.pop(2)
+		labels.pop(2)
+	if "damage" in result and sum(result["damage"]) == 0:
+		result.pop('damage', None)
+		colors.pop(1)
+		labels.pop(1)
+	if "ranged" in result and sum(result["ranged"]) == 0:
+		result.pop('ranged', None)
+		colors.pop(0)
+		labels.pop(0)
+	
 	results = list(result.values())
 	minData = min(map(lambda x: min(x), results)) if len(results) > 0 else 0
 	maxData = max(map(lambda x: max(x), results)) if len(results) > 0 else 0
@@ -179,6 +200,7 @@ def descent(cli, **kwargs):
 	[b.remove() for b in pltBars]
 	_, _, pltBars = plt.hist(results, color=colors[:max(len(result),1)], edgecolor='black',
 		label=labels[:max(len(result),1)], bins=np.arange(minData, maxData + 0.9999, 0.9999), density=True)
+	plt.style.use('dark_background')
 
 	global figure
 	figure = plt.gcf()
@@ -192,7 +214,7 @@ def descent(cli, **kwargs):
 	# Place a legend to the right
 	handles, _ = ax.axes.get_legend_handles_labels()
 	if not settings_showMiss and len(results)>0:
-		handles.append(mpatches.Patch(color='none', label=labels[3]))
+		handles.append(mpatches.Patch(color='none', label=labels[-1]))
 	plt.legend(handles=handles)
 
 	if cli:
@@ -247,8 +269,6 @@ def descentGUI(stdscr):
 			plt.close('all')
 			curses.endwin()
 			return
-
-		stdscr.addstr(9, 1, "{0}".format(figure.number))
 
 		# Draw dice values
 		for i in range(0,7):
