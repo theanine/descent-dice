@@ -153,13 +153,13 @@ def rollDice(**kwargs):
 	rolled = doProdSum(dice)
 
 	# adjust dice for misses
-	hit = [0 if x > 0 else 1 for x in rolled['miss']] if 'miss' in rolled else [0]
+	hit = [0 if x > 0 else 1 for x in rolled['miss']] if 'miss' in rolled else []
 	for i in rolled:
 		if i == 'miss':
 			continue
 		rolled[i] = [a*b for a,b in zip(hit, rolled[i])]
 
-	avgMiss = 1 - (sum(hit) / len(hit))
+	avgMiss = 1 - (sum(hit) / len(hit)) if len(hit) > 0 else 0
 	return rolled, avgMiss
 
 def diceFromGUI():
