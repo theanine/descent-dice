@@ -7,16 +7,21 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import matplotlib.ticker as plticker
 import numpy as np
+import curses
+from curses.textpad import Textbox, rectangle
 from collections import defaultdict
 from IPython.core.pylabtools import figsize
 
+# matplotlib.use("Qt4agg")
+
 settings_showPercent = False
-settings_showMiss = False
+settings_showMiss = True
 
 matplotlib.rcParams['font.size'] = 18
 matplotlib.rcParams['figure.dpi'] = 300
 
 dies = {}
+GUIdice = [0,0,0,0,0,0,0]
 
 # ATK
 dies["blue"] = {}
@@ -45,25 +50,44 @@ dies["green"]["miss"]   = [0,0,0,0,0,0]
 
 # DEF
 dies["brown"] = {}
+dies["brown"]["ranged"] = [0,0,0,0,0,0]
 dies["brown"]["damage"] = [-0,-0,-0,-1,-1,-2]
+dies["brown"]["surge"]  = [0,0,0,0,0,0]
+dies["brown"]["miss"]   = [0,0,0,0,0,0]
 dies["white"] = {}
+dies["white"]["ranged"] = [0,0,0,0,0,0]
 dies["white"]["damage"] = [-0,-1,-1,-1,-2,-3]
+dies["white"]["surge"]  = [0,0,0,0,0,0]
+dies["white"]["miss"]   = [0,0,0,0,0,0]
 dies["black"] = {}
+dies["black"]["ranged"] = [0,0,0,0,0,0]
 dies["black"]["damage"] = [-0,-2,-2,-2,-3,-4]
+dies["black"]["surge"]  = [0,0,0,0,0,0]
+dies["black"]["miss"]   = [0,0,0,0,0,0]
+
+def drawPlot():
+	backend = plt.rcParams['backend']
+	if backend in matplotlib.rcsetup.interactive_bk:
+		figManager = matplotlib._pylab_helpers.Gcf.get_active()
+		if figManager is not None:
+			canvas = figManager.canvas
+			if canvas.figure.stale:
+				canvas.draw()
+			canvas.start_event_loop(0.001)
 
 def doProdSum(list_of_dicts):
-    # We reorganize the data by key
-    lists_by_key = defaultdict(list)
-    for d in list_of_dicts:
-        for k, v in d.items():
-            lists_by_key[k].append(v)
+	# We reorganize the data by key
+	lists_by_key = defaultdict(list)
+	for d in list_of_dicts:
+		for k, v in d.items():
+			lists_by_key[k].append(v)
 
-    # Then we generate the output
-    out = {}
-    for key, lists in lists_by_key.items():
-        out[key] = [sum(prod) for prod in itertools.product(*lists)]
+	# Then we generate the output
+	out = {}
+	for key, lists in lists_by_key.items():
+		out[key] = [sum(prod) for prod in itertools.product(*lists)]
 
-    return out
+	return out
 
 def rollDice(**kwargs):
 	# add dice to pool
@@ -84,7 +108,51 @@ def rollDice(**kwargs):
 	avgMiss = 1 - (sum(hit) / len(hit))
 	return rolled, avgMiss
 
-def descent(**kwargs):
+def diceFromGUI():
+	blu = GUIdice[0];
+	red = GUIdice[1];
+	yel = GUIdice[2];
+	gre = GUIdice[3];
+	bro = GUIdice[4];
+	whi = GUIdice[5];
+	bla = GUIdice[6];
+	return {'blue':blu, 'red':red, 'yellow':yel, 'green':gre, 'brown':bro, 'white':whi, 'black':bla}
+
+figure = None
+def descentSetup(cli):
+	colors = ['#009E73', '#D55E00', '#F0E442', '#56B4E9'] # '#E69F00' (orange)
+	
+	# Make the histogram using matplotlib
+	figsize(9 if cli else 8.25, 6)
+	plt.hist([], color=colors[0], edgecolor='black', bins=np.arange(0, 0 + 0.9999, 0.9999), density=True)
+	
+	# Add labels
+	global figure
+	figure = plt.gcf()
+	figure.canvas.set_window_title('Descent: Dice Probability Distribution Graph {0}'.format(figure.number))
+	plt.title('Descent: Dice Probability Distribution Graph')
+	plt.xlabel('Amount')
+	plt.ylabel('Percentile')
+	plt.subplots_adjust(left=0.12, bottom=0.13, right=0.98, top=0.92)
+
+	# Add ticks on x-axis/y-axis
+	ax = plt.gca()
+	ax.axes.xaxis.set_major_locator(plticker.MultipleLocator(base=1.0))
+	ax.axes.yaxis.set_major_locator(plticker.MultipleLocator(base=0.05))
+	
+	if settings_showPercent:
+		ax.axes.set_yticklabels(['{:,.0%}'.format(x) for x in ax.axes.get_yticks()])
+	
+	if not cli:
+		plt.ion()
+		plt.show(block=False)
+		curses.wrapper(descentGUI)
+
+pltBars = []
+def descent(cli, **kwargs):
+	if not cli:
+		kwargs = diceFromGUI()
+
 	result, avgMiss = rollDice(**kwargs)
 	if not settings_showMiss:
 		result.pop('miss', None)
@@ -101,40 +169,109 @@ def descent(**kwargs):
 			  'damage ({0:.1f})'.format(avgDamage),
 			  'surge ({0:.1f}%)'.format(avgSurge * 100),
 			  'miss ({0:.1f}%)'.format(avgMiss * 100)]
+
 	results = list(result.values())
 	minData = min(map(lambda x: min(x), results)) if len(results) > 0 else 0
 	maxData = max(map(lambda x: max(x), results)) if len(results) > 0 else 0
 
 	# Make the histogram using matplotlib
-	figsize(9, 7)
-	plt.hist(results, color=colors[:max(len(result),1)], edgecolor='black', label=labels,
-		bins=np.arange(minData, maxData + 0.9999, 0.9999), density=True)
-	
-	# Add labels
-	plt.title('Descent: Dice Probability Distribution Graph')
-	plt.xlabel('Amount')
-	plt.ylabel('Percentile')
+	global pltBars
+	[b.remove() for b in pltBars]
+	_, _, pltBars = plt.hist(results, color=colors[:max(len(result),1)], edgecolor='black',
+		label=labels[:max(len(result),1)], bins=np.arange(minData, maxData + 0.9999, 0.9999), density=True)
 
-	# Add ticks on x-axis/y-axis
-	frame1 = plt.gca()
-	frame1.axes.xaxis.set_major_locator(plticker.MultipleLocator(base=1.0))
-	frame1.axes.yaxis.set_major_locator(plticker.MultipleLocator(base=0.05))
-	
-	if settings_showPercent:
-		frame1.axes.set_yticklabels(['{:,.0%}'.format(x) for x in frame1.axes.get_yticks()])
-	
-	# Place a legend to the right of this smaller subplot.
-	handles, _ = frame1.axes.get_legend_handles_labels()
+	global figure
+	figure = plt.gcf()
+	figure.canvas.set_window_title('Descent: Dice Probability Distribution Graph {0}'.format(figure.number))
+	ax = plt.gca()
+	if not cli:
+		# Rescale the display to fit the data
+		ax.relim()
+		ax.autoscale_view()
+
+	# Place a legend to the right
+	handles, _ = ax.axes.get_legend_handles_labels()
 	if not settings_showMiss and len(results)>0:
 		handles.append(mpatches.Patch(color='none', label=labels[3]))
 	plt.legend(handles=handles)
-	plt.show()
+
+	if cli:
+		plt.show()
+	else:
+		drawPlot()
+
+def plotWasClosed():
+	return not plt.fignum_exists(figure.number)
+
+def descentGUI(stdscr):
+	curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_WHITE)
+	
+	stdscr.addstr(0, 0, "Enter Dice: (ESC to quit)")
+	stdscr.addstr(2, 1, "Blue:")
+	stdscr.addstr(3, 1, "Red:")
+	stdscr.addstr(4, 1, "Yellow:")
+	stdscr.addstr(5, 1, "Green:")
+	stdscr.addstr(6, 1, "Brown:")
+	stdscr.addstr(7, 1, "White:")
+	stdscr.addstr(8, 1, "Black:")
+	
+	curses.curs_set(0)
+	editwin = curses.newwin(8,2, 2,11)
+	rectangle(stdscr, 1,9, 1+7+1, 1+11+1)
+	
+	stdscr.nodelay(True)
+	selected = 0
+	counter = 100
+	while True:
+		# User input
+		c = stdscr.getch()
+		if c >= ord('0') and c <= ord('9'):
+			if GUIdice[selected] != int(chr(c)):
+				GUIdice[selected] = int(chr(c))
+				counter = 0
+		elif c == 263 or c == 330: # DEL
+			if GUIdice[selected] != 0:
+				GUIdice[selected] = 0
+				counter = 0
+		elif c == 258: # down
+			selected += 1
+			if selected > 6:
+				selected = 6
+		elif c == 259: # up
+			selected -= 1
+			if selected < 0:
+				selected = 0
+		elif c == 27 or plotWasClosed(): # ESC
+			stdscr.addstr(0, 0, "*********QUITTING********")
+			stdscr.refresh()
+			plt.close('all')
+			curses.endwin()
+			return
+
+		stdscr.addstr(9, 1, "{0}".format(figure.number))
+
+		# Draw dice values
+		for i in range(0,7):
+			stdscr.addstr(i+2, 11, str(GUIdice[i]), curses.color_pair(1 if i == selected else 0))
+			stdscr.refresh()
+	
+		# Draw plot
+		time.sleep(0.01)
+		counter -= 1
+		if counter <= 0:
+			descent(False)
+			counter = 100
 
 def usage(exitcode):
 	print("dice.py [--blue|--red|--yellow|--green|--brown|--white|--black]")
 	sys.exit(exitcode)
 
 if __name__ == "__main__":
+	for i, opt in enumerate(sys.argv):
+		if opt == '--':
+			break
+		elif '=' not in opt:
+			sys.argv[i] += '='
 	try:
 		opts, args = getopt.getopt(sys.argv[1:],"",["blue=","red=","yellow=","green=","brown=","white=","black="])
 	except getopt.GetoptError:
@@ -158,4 +295,12 @@ if __name__ == "__main__":
 			whi += 1 if arg == "" else int(arg)
 		elif opt in ("--black"):
 			bla += 1 if arg == "" else int(arg)
-	descent(blue=blu, red=red, yellow=yel, green=gre, brown=bro, white=whi, black=bla)
+
+	kwargs = {'blue':blu, 'red':red, 'yellow':yel, 'green':gre, 'brown':bro, 'white':whi, 'black':bla}
+	cli = False
+	for key, value in kwargs.items():
+		if value > 0:
+			cli = True
+
+	descentSetup(cli)
+	descent(cli, **kwargs)
