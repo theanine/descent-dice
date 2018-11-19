@@ -17,6 +17,7 @@ from IPython.core.pylabtools import figsize
 
 settings_showPercent = False
 settings_showMiss = False
+settings_surgePct = False
 settings_debug = False
 cum_enabled = 0
 cum_mode = 1
@@ -226,9 +227,11 @@ def descentPlot(cli, reroll, **kwargs):
 	timeStart(5)
 	avgRange = 0 if "ranged" not in result else sum(result["ranged"])/len(result["ranged"])
 	avgDamage = 0 if "damage" not in result else sum(result["damage"])/len(result["damage"])
-	surge = [1 if x > 0 else 0 for x in result["surge"]] if 'surge' in result else [0]
-	# surge = [0 if 'surge' not in result else (1 if x > 0 else 0 for x in result["surge"])]
-	avgSurge = sum(surge) / len(surge)
+	if settings_surgePct:
+		surge = [1 if x > 0 else 0 for x in result["surge"]] if 'surge' in result else [0]
+		avgSurge = sum(surge) / len(surge)
+	else:
+		avgSurge = 0 if "surge" not in result else sum(result["surge"])/len(result["surge"])
 	
 	# Configure histogram settings
 	global colors, labels, hideMiss
@@ -236,8 +239,10 @@ def descentPlot(cli, reroll, **kwargs):
 		colors = ['#009E73', '#D55E00', '#F0E442', '#56B4E9'] # '#E69F00' (orange)
 		labels = ['ranged ({0:.1f})'.format(avgRange),
 				  'damage ({0:.1f})'.format(avgDamage),
-				  'surge ({0:.1f}%)'.format(avgSurge * 100),
+				  'surge ({0:.1f})'.format(avgSurge),
 				  'miss ({0:.1f}%)'.format(avgMiss * 100)]
+		if settings_surgePct:
+			labels[2] = 'surge ({0:.1f}%)'.format(avgSurge * 100)
 
 		hideMiss = False
 		if not settings_showMiss:
